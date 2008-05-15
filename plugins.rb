@@ -1,9 +1,12 @@
 #!/usr/bin/ruby
 
+#ruby module to manage rails plugins in an git-svn dcommit friendly way
+#
+#Copyright 2008 Nazar Aziz - nazar@panthersoftware.com
+
 require 'optparse'
 require 'ostruct'
 require 'fileutils'
-require 'ftools'
 require 'fileutils'
 require 'yaml'
 
@@ -120,12 +123,15 @@ class Plugin
   end 
   
   def update
+    puts "Processing #{name}"
     #does the plugin exist?
     if File.directory?(File.join(@plugin_path, '.git'))
       pull
     else
       clone
     end
+    load_from_local_plugin_info
+    puts ""
   end
   
   def clone
@@ -135,49 +141,44 @@ class Plugin
   end
   
   def pull
-    #cd to plugin directory...change to master and pull
-    pwd = Dir.pwd
-    begin
-      FileUtils.cd(@plugin_path)
+    git_action do
       puts eval("`#{GIT_CMD} checkout master`")
       puts eval("`#{GIT_CMD} pull`")
       #update plugin vars
       load_from_local_plugin_info
-    ensure
-      FileUtils.cd(pwd)      
     end
   end
   
   def push
-    #cd to plugin directory...change to master and pull
-    pwd = Dir.pwd
-    begin
-      FileUtils.cd(@plugin_path)
+    git_action do
       puts eval("`#{GIT_CMD} push`")
       #update plugin vars
       load_from_local_plugin_info
       load_from_remote_last_commit_info
-    ensure
-      FileUtils.cd(pwd)      
     end
   end
   
   def execute(command)
-    #cd to plugin directory...change to master and pull
-    pwd = Dir.pwd
-    begin
-      FileUtils.cd(@plugin_path)
+    git_action do
       puts eval("`#{command}`")
       #update plugin vars
       load_from_local_plugin_info
       load_from_remote_last_commit_info
-    ensure
-      FileUtils.cd(pwd)      
     end
   end
   
   
   protected
+  
+  def git_action &block
+    #cd to plugin directory...change to master and pull
+    pwd = Dir.pwd
+    begin
+      block.call
+    ensure
+      FileUtils.cd(pwd)      
+    end
+  end
   
   #does a shallow check by just looking for a .git directory in the given path
   def valid_git_repository
@@ -245,7 +246,18 @@ class Plugins
   end
   
   #class methods
-  
+
+  def self.list
+    vendor = Plugins.new
+    if vendor.plugins.length > 0
+      vendor.plugins.each do |p_name, p_plugin|
+        puts "#{p_name} - #{p_plugin.status_description} - #{p_plugin.plugin_head}"
+      end
+    else
+      puts "No plugins yet."
+    end
+  end
+
   def self.add(git_path)
     vendor = Plugins.new
     git_path.each do |plugin_path|
@@ -262,52 +274,26 @@ class Plugins
     vendor.save
   end
   
-  def self.list
-    vendor = Plugins.new
-    if vendor.plugins.length > 0
-      vendor.plugins.each do |p_name, p_plugin|
-        puts "#{p_name} - #{p_plugin.status_description} - #{p_plugin.plugin_head}"
-      end
-    else
-      puts "No plugins yet."
-    end
-  end
-  
   def self.update(plugins = [])
     plugins = [] unless plugins
-    vendor = Plugins.new
-    if vendor.plugins.length > 0
-      vendor.plugins.each do |p_name, p_plugin|
-        p_plugin.update if (plugins.length == 0) || (plugins.include?(p_name))
-      end
-    else
-      puts "No plugins yet."
-    end
-    #finally... save to .plugins
-    vendor.save
+    self.iterate_over_plugins(plugins){|plugin| plugin.update}
   end
 
   def self.push(plugins = [])
     plugins = [] unless plugins
-    vendor = Plugins.new
-    if vendor.plugins.length > 0
-      vendor.plugins.each do |p_name, p_plugin|
-        p_plugin.push if (plugins.length == 0) || (plugins.include?(p_name))
-      end
-    else
-      puts "No plugins yet."
-    end
-    #finally... save to .plugins
-    vendor.save
+    self.iterate_over_plugins(plugins){|plugin| plugin.push}
   end
   
   def self.command(command, plugins = [])
     plugins = [] unless plugins
+    self.iterate_over_plugins(plugins){|plugin| plugin.execute(command)}
+  end
+  
+  def self.iterate_over_plugins(plugins)
     vendor = Plugins.new
-    puts command
     if vendor.plugins.length > 0
       vendor.plugins.each do |p_name, p_plugin|
-        p_plugin.execute(command) if (plugins.length == 0) || (plugins.include?(p_name))
+        yield p_plugin if (plugins.length == 0) || (plugins.include?(p_name))
       end
     else
       puts "No plugins yet."

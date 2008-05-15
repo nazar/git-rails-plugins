@@ -12,14 +12,16 @@ require 'yaml'
 
 
 GIT_PATH = '/usr/bin/'
+SVN_PATH = '/usr/bin'
 
 options = OpenStruct.new
 
 #parse command line
 opt = OptionParser.new do |opts|
   #defaults
-  options.op = ''
+  options.op     = ''
   options.plugin = ''
+  options.svn    = ''
   #
   opts.banner = "Usage: plugins [options]"
   opts.separator ""
@@ -61,6 +63,12 @@ opt = OptionParser.new do |opts|
     end
   end
   
+  opts.on("-s", "--svn EXTERN_PATH", "Clone all referenced svn:externals plugins at EXTERN_PATH") do |v|
+    options.op = 'svn'
+    options.svn = v
+  end
+  
+  
   opts.on_tail("-?", "--help", "Show this message") do
     puts opts
     exit
@@ -84,21 +92,43 @@ end
 
 class Plugin
   
-  attr_accessor :name, :remote_head, :remote_author, :remote_date, :remote_commit_log, :plugin_head, :plugin_author, :plugin_date, :plugin_commit_log, :plugin_path 
+  attr_accessor :name, :remote_head, :remote_author, :remote_date, :remote_commit_log, :remote_path, :type, 
+                :plugin_head, :plugin_author, :plugin_date, :plugin_commit_log, :plugin_path
   
   GIT_CMD     = File.join(GIT_PATH, 'git')
   GIT_LOG_CMD = "`#{GIT_CMD} log -n1`"
   
-  def initialize(git_path, vendor_path)
-    @remote_path = File.expand_path(git_path)
-    @name = File.basename(git_path)
-    @plugin_path = File.join(vendor_path, @name)
+  #constructors
+  
+  def initialize(name, vendor)
+    @name        = name.strip
+    @plugin_path = File.join(vendor.path, @name)
+    @remote_path = ''
+    @type        = -1 # -1 - not initialised, 1 - clone, 2 - svn external ref
+  end
+  
+  #class methods
+  
+  def self.clone_git_repo(git_path, vendor)
+    plugin = Plugin.new(File.basename(git_path), vendor)
+    plugin.remote_path = File.expand_path(git_path)
+    plugin.type = 1 #git clone
     #valid GIT repository?
-    raise "#{path} is not a GIT reposiroty" unless valid_git_repository
+    raise "#{git_path} is not a GIT reposiroty" unless plugin.valid_git_repository(git_path)
     #query log and get last commit
-    load_from_remote_last_commit_info
+    plugin.load_from_remote_last_commit_info
     #load plugin info
-    load_from_local_plugin_info
+    plugin.load_from_local_plugin_info
+    #
+    return plugin
+  end
+  
+  def self.clone_svn_external(name, svn_path, vendor)
+    plugin = Plugin.new(name, vendor)
+    plugin.remote_path = svn_path.strip
+    plugin.type = 2 #svn:externals clone
+    #
+    return plugin
   end
   
   #instance methods
@@ -108,7 +138,11 @@ class Plugin
     #does the plugin exist?
     if File.directory?(File.join(@plugin_path, '.git'))
       #okay...exists.. compare hashes
-      @remote_hash != @plugin_hash ? 1 : 2
+      if type == 1
+        @remote_hash != @plugin_head ? 1 : 2
+      else
+        3
+      end
     else  
       0
     end
@@ -119,6 +153,7 @@ class Plugin
       when 0; 'un-initialised'
       when 1; 'needs update'
       when 2; 'up-to-date'
+      when 3; 'svn clone - cannot determine status (yet..)'
     end
   end 
   
@@ -135,55 +170,71 @@ class Plugin
   end
   
   def clone
-    raise "non git dir exists in #{@plugin_path}. Delete first." if File.exist?(@plugin_path)
-    puts eval("`#{GIT_CMD} clone #{@remote_path} #{@plugin_path}`")
+    raise "Directory exists in #{@plugin_path}. Delete first." if File.exist?(@plugin_path)
+    puts "cloning #{name}"
+    #cloning git or svn repository?
+    case type
+    when 1 #GIT repos
+      puts eval("`#{GIT_CMD} clone #{@remote_path} #{@plugin_path}`")
+    when 2 #svn:externals 
+      puts eval("`#{GIT_CMD} svn clone #{@remote_path} #{@plugin_path}`")
+    end
+    #read cloned info
     load_from_local_plugin_info
+    puts ""
   end
   
   def pull
+    puts "pulling #{name}"
     git_action do
       puts eval("`#{GIT_CMD} checkout master`")
-      puts eval("`#{GIT_CMD} pull`")
+      #pull from git or svn?
+      case type
+      when 1
+        puts eval("`#{GIT_CMD} pull`")
+      when 2
+        #cmd = "`#{GIT_CMD} svn rebase`"; puts Dir.pwd
+        puts eval("`#{GIT_CMD} svn rebase`")
+      end
       #update plugin vars
       load_from_local_plugin_info
     end
   end
   
   def push
+    puts "pushing #{name} to #{remote_path}"
     git_action do
-      puts eval("`#{GIT_CMD} push`")
+      #git or svn?
+      case type
+      when 1
+        puts eval("`#{GIT_CMD} push`")
+        load_from_remote_last_commit_info
+      when 2
+        puts eval("`#{GIT_CMD} svn dcommit`")
+      end
       #update plugin vars
       load_from_local_plugin_info
-      load_from_remote_last_commit_info
     end
+    puts ""
   end
   
   def execute(command)
+    puts "executing '#{command}' on #{plugin_path}"
     git_action do
       puts eval("`#{command}`")
       #update plugin vars
       load_from_local_plugin_info
-      load_from_remote_last_commit_info
+      load_from_remote_last_commit_info if type == 1
     end
+    puts ""
   end
-  
   
   protected
   
-  def git_action &block
-    #cd to plugin directory...change to master and pull
-    pwd = Dir.pwd
-    begin
-      block.call
-    ensure
-      FileUtils.cd(pwd)      
-    end
-  end
-  
-  #does a shallow check by just looking for a .git directory in the given path
-  def valid_git_repository
-    raise "#{@remote_path} is not a directory" unless File.directory?(@remote_path)                                                                
-    raise "#{@remote_path} is not a git repository" unless File.exist?(File.join(@remote_path,'.git')) && (File.directory?(File.join(@remote_path,'.git')))
+    #does a shallow check by just looking for a .git directory in the given path
+  def valid_git_repository(path)
+    raise "#{path} is not a directory" unless File.directory?(path)                                                                
+    raise "#{path} is not a git repository" unless File.exist?(File.join(path,'.git')) && (File.directory?(File.join(path,'.git')))
     return true
   end
 
@@ -225,24 +276,38 @@ class Plugin
       end    
     end
   end
-  
+
+  def git_action &block
+    #cd to plugin directory...change to master and pull
+    pwd = Dir.pwd
+    begin
+      FileUtils.cd(@plugin_path)
+      block.call
+    ensure
+      FileUtils.cd(pwd)      
+    end
+  end
 end
 
-#Plugin class encapsulates Rails plugins by enumerating all plugins and providing per plugin methods
+#Plugins class encapsulates Rails plugins by enumerating all plugins and providing per plugin methods
 class Plugins
+  SVN_CMD = File.join(SVN_PATH, 'svn')
   
   attr_accessor :path, :plugins
   
   #constructor
   
   def initialize
-    @plugins = {}
     @path = File.join(Dir.pwd,'vendor','plugins')
     #this script can only be called from rails_root
     raise "Script was run from #{Dir.pwd}. Please run it from your Rails root directory" unless File.directory?(@path)
     #
     @plugins_file = File.join(Dir.pwd, '.plugins')
-    @plugins = File.open( @plugins_file  ) { |yf| YAML::load( yf ) }
+    if File.exist?(@plugins_file)
+      @plugins = File.open( @plugins_file  ) { |yf| YAML::load( yf ) }
+    else
+      @plugins = {}
+    end
   end
   
   #class methods
@@ -250,17 +315,33 @@ class Plugins
   def self.add(git_path)
     vendor = Plugins.new
     git_path.each do |plugin_path|
-      plugin = Plugin.new(plugin_path, vendor.path)
-      #
-      if vendor[plugin.name]
-        puts "Plugin #{plugin.name} updated"
-      else
-        puts "Plugin #{plugin.name} added"
-      end
-      vendor[plugin.name] = plugin
+      plugin = Plugin.clone_git_repo(plugin_path, vendor)
+      vendor.add_plugin(plugin)
     end
     #finally... save to .plugins
     vendor.save
+  end
+  
+  #expects a valid SVN path that contains an svn:externals property. Parse property and git-svn clone all referenced plugins
+  def self.clone_svn_externals(svn_extern_prop)
+    vendor = Plugins.new
+    props = eval("`#{SVN_CMD} propget svn:externals #{svn_extern_prop}`")
+    #error check
+    raise "Error: #{props}" if props[/does not exist/]
+    raise "No svn:externals found at #{svn_extern_prop}" unless props.split('\n').length > 0
+    #do it
+    props.each_line do |external|
+      match = /(.+)\s+(.+)/.match(external)
+      if match
+        raise "un-expected svn externals format #{external}" unless match.length == 3
+        plugin = Plugin.clone_svn_external(match[1], match[2], vendor)
+        plugin.clone
+        vendor.add_plugin(plugin)
+      else
+        puts 'No matches... skipping'
+      end
+      vendor.save
+    end
   end
   
   def self.list
@@ -318,6 +399,15 @@ class Plugins
     @plugins.length
   end
   
+  def add_plugin(plugin)
+    if @plugins[plugin.name]
+      puts "Plugin #{plugin.name} updated"
+    else
+      puts "Plugin #{plugin.name} added"
+    end
+    @plugins[plugin.name] = plugin
+  end
+  
 end
 
 
@@ -329,4 +419,5 @@ case options.op
   when 'update';  Plugins.update(options.plugin)
   when 'push';    Plugins.push(options.plugin)
   when 'command'; Plugins.command(options.command, options.plugin)
+  when 'svn';     Plugins.clone_svn_externals(options.svn)
 end

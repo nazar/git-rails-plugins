@@ -247,17 +247,6 @@ class Plugins
   
   #class methods
 
-  def self.list
-    vendor = Plugins.new
-    if vendor.plugins.length > 0
-      vendor.plugins.each do |p_name, p_plugin|
-        puts "#{p_name} - #{p_plugin.status_description} - #{p_plugin.plugin_head}"
-      end
-    else
-      puts "No plugins yet."
-    end
-  end
-
   def self.add(git_path)
     vendor = Plugins.new
     git_path.each do |plugin_path|
@@ -274,22 +263,24 @@ class Plugins
     vendor.save
   end
   
-  def self.update(plugins = [])
-    plugins = [] unless plugins
+  def self.list
+    self.iterate_over_plugins{|plugin| puts "#{plugin.name} - #{plugin.status_description} - #{plugin.plugin_head}"}
+  end
+
+  def self.update(plugins)
     self.iterate_over_plugins(plugins){|plugin| plugin.update}
   end
 
-  def self.push(plugins = [])
-    plugins = [] unless plugins
+  def self.push(plugins)
     self.iterate_over_plugins(plugins){|plugin| plugin.push}
   end
   
-  def self.command(command, plugins = [])
-    plugins = [] unless plugins
+  def self.command(command, plugins)
     self.iterate_over_plugins(plugins){|plugin| plugin.execute(command)}
   end
   
-  def self.iterate_over_plugins(plugins)
+  def self.iterate_over_plugins(plugins = [])
+    plugins = [] unless plugins
     vendor = Plugins.new
     if vendor.plugins.length > 0
       vendor.plugins.each do |p_name, p_plugin|
@@ -309,7 +300,7 @@ class Plugins
   end
   
   def []= (name, value=nil)
-    @plugins[name] = value if value
+    @plugins[name] = value
   end
   
   #constructs or updates .plugins file at RAILS root for tracking plugins
@@ -325,19 +316,6 @@ class Plugins
   
   def length
     @plugins.length
-  end
-  
-  private
-  
-  def enumerate_plugins
-    dir = Dir.new(@path)
-    #must have plugins in vendor/plugins
-    raise "No plugins found in #{@path}" unless dir.entries.length > 0
-    #enumerate all plugins and create
-    @plugins = {}
-    dir.each do |plugin|
-      @plugins[plugin] = Plugin.new(@path << plugin) unless plugin[0,1] == '.'
-    end
   end
   
 end

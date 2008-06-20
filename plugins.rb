@@ -11,7 +11,7 @@ require 'fileutils'
 require 'yaml'
 
 
-GIT_PATH = '/usr/bin/'
+GIT_PATH = '/usr/local/bin'
 SVN_PATH = '/usr/bin'
 
 options = OpenStruct.new
@@ -111,7 +111,8 @@ class Plugin
   
   def self.clone_git_repo(git_path, vendor)
     plugin = Plugin.new(File.basename(git_path), vendor)
-    plugin.remote_path = File.expand_path(git_path)
+#    plugin.remote_path = File.expand_path(git_path)
+    plugin.remote_path = git_path
     plugin.type = 1 #git clone
     #valid GIT repository?
     raise "#{git_path} is not a GIT reposiroty" unless plugin.valid_git_repository(git_path)

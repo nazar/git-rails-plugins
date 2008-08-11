@@ -111,7 +111,6 @@ class Plugin
   
   def self.clone_git_repo(git_path, vendor)
     plugin = Plugin.new(File.basename(git_path), vendor)
-#    plugin.remote_path = File.expand_path(git_path)
     plugin.remote_path = git_path
     plugin.type = 1 #git clone
     #valid GIT repository?
@@ -229,8 +228,6 @@ class Plugin
     end
     puts ""
   end
-  
-  protected
   
     #does a shallow check by just looking for a .git directory in the given path
   def valid_git_repository(path)

@@ -180,8 +180,8 @@ class Plugin
         puts eval("`#{GIT_CMD} svn clone #{@remote_path} #{@plugin_path}`")
       end
     else
-      puts "Directory exists in #{@plugin_path}. Skipping clone. Updating instead"
-      update
+      puts "Directory exists in #{@plugin_path}. Skipping clone. Pulling instead"
+      pull
     end
     #read cloned info
     load_from_local_plugin_info

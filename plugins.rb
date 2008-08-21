@@ -170,14 +170,18 @@ class Plugin
   end
   
   def clone
-    raise "Directory exists in #{@plugin_path}. Delete first." if File.exist?(@plugin_path)
-    puts "cloning #{name}"
-    #cloning git or svn repository?
-    case type
-    when 1 #GIT repos
-      puts eval("`#{GIT_CMD} clone #{@remote_path} #{@plugin_path}`")
-    when 2 #svn:externals 
-      puts eval("`#{GIT_CMD} svn clone #{@remote_path} #{@plugin_path}`")
+    unless File.exist?(@plugin_path)
+      puts "cloning #{name}"
+      #cloning git or svn repository?
+      case type
+      when 1 #GIT repos
+        puts eval("`#{GIT_CMD} clone #{@remote_path} #{@plugin_path}`")
+      when 2 #svn:externals 
+        puts eval("`#{GIT_CMD} svn clone #{@remote_path} #{@plugin_path}`")
+      end
+    else
+      puts "Directory exists in #{@plugin_path}. Skipping clone. Updating instead"
+      update
     end
     #read cloned info
     load_from_local_plugin_info

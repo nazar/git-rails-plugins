@@ -1,8 +1,9 @@
 #!/usr/bin/ruby
 
-#ruby module to manage rails plugins in an git-svn dcommit friendly way
+# ruby module to manage rails plugins in an git-svn dcommit friendly way
 #
-#Copyright 2008 Nazar Aziz - nazar@panthersoftware.com
+# Copyright 2008 Nazar Aziz - nazar@panthersoftware.com
+# Modified 2009 Andrew Carter <ascarter@gmail.com>
 
 require 'optparse'
 require 'ostruct'
@@ -10,9 +11,9 @@ require 'fileutils'
 require 'fileutils'
 require 'yaml'
 
-
-GIT_PATH = '/usr/local/bin'
-SVN_PATH = '/usr/bin'
+# Override default /usr/bin paths by setting environment vars
+GIT_PATH = ENV['GIT_RAILS_PLUGINS_GIT_PATH'] || '/usr/bin'
+SVN_PATH = ENV['GIT_RAILS_PLUGINS_SVN_PATH'] || '/usr/bin'
 
 options = OpenStruct.new
 

@@ -1,8 +1,8 @@
-#!/usr/bin/ruby
+#!/usr/bin/env ruby
 
 #ruby module to manage rails plugins in an git-svn dcommit friendly way
 #
-#Copyright 2008 Nazar Aziz - nazar@panthersoftware.com
+#Copyright 2010 Nazar Aziz - nazar@panthersoftware.com
 
 require 'optparse'
 require 'ostruct'
@@ -11,8 +11,8 @@ require 'fileutils'
 require 'yaml'
 
 
-GIT_PATH = '/usr/local/bin'
-SVN_PATH = '/usr/bin'
+GIT_PATH = `which git`.strip
+SVN_PATH = `which svn`.strip
 
 options = OpenStruct.new
 
@@ -67,7 +67,11 @@ opt = OptionParser.new do |opts|
     options.op = 'svn'
     options.svn = v
   end
-  
+
+  opts.on("-r", "--svn-update", "Update all referenced svn:externals plugins") do |v|
+    options.op = 'svn-update'
+  end
+
   
   opts.on_tail("-?", "--help", "Show this message") do
     puts opts
@@ -82,7 +86,6 @@ opt.parse!
 options.plugin = options.plugin.split(',') if options.plugin 
 
 # check for valid op
-
 if options.op == ''
   puts opt.to_s 
   exit
@@ -90,12 +93,12 @@ end
 
 ################# classes ##################
 
-class Plugin
+class SvnPlugin
   
   attr_accessor :name, :remote_head, :remote_author, :remote_date, :remote_commit_log, :remote_path, :type, 
                 :plugin_head, :plugin_author, :plugin_date, :plugin_commit_log, :plugin_path
   
-  GIT_CMD     = File.join(GIT_PATH, 'git')
+  GIT_CMD     = GIT_PATH
   GIT_LOG_CMD = "`#{GIT_CMD} log -n1`"
   
   #constructors
@@ -110,7 +113,7 @@ class Plugin
   #class methods
   
   def self.clone_git_repo(git_path, vendor)
-    plugin = Plugin.new(File.basename(git_path), vendor)
+    plugin = SvnPlugin.new(File.basename(git_path), vendor)
     plugin.remote_path = git_path
     plugin.type = 1 #git clone
     #valid GIT repository?
@@ -124,7 +127,7 @@ class Plugin
   end
   
   def self.clone_svn_external(name, svn_path, vendor)
-    plugin = Plugin.new(name, vendor)
+    plugin = SvnPlugin.new(name, vendor)
     plugin.remote_path = svn_path.strip
     plugin.type = 2 #svn:externals clone
     #
@@ -293,7 +296,7 @@ end
 
 #Plugins class encapsulates Rails plugins by enumerating all plugins and providing per plugin methods
 class Plugins
-  SVN_CMD = File.join(SVN_PATH, 'svn')
+  SVN_CMD = SVN_PATH
   
   attr_accessor :path, :plugins
   
@@ -306,7 +309,7 @@ class Plugins
     #
     @plugins_file = File.join(Dir.pwd, '.plugins')
     if File.exist?(@plugins_file)
-      @plugins = File.open( @plugins_file  ) { |yf| YAML::load( yf ) }
+      @plugins = File.open( @plugins_file  ) { |yf| YAML::load( yf ) }.inject({}){|config,plugin| config.merge!(plugin.first => plugin.last)}
     else
       @plugins = {}
     end
@@ -317,11 +320,19 @@ class Plugins
   def self.add(git_path)
     vendor = Plugins.new
     git_path.each do |plugin_path|
-      plugin = Plugin.clone_git_repo(plugin_path, vendor)
+      plugin = SvnPlugin.clone_git_repo(plugin_path, vendor)
       vendor.add_plugin(plugin)
     end
     #finally... save to .plugins
     vendor.save
+  end
+
+  #checks options[externals_path]. if set will reclone from saved svn path
+  def self.update_svn_externals
+    vendor = Plugins.new
+    unless vendor.plugins['externals_type'].nil? || vendor.plugins['externals_path'].nil?
+      Plugins.clone_svn_externals(vendor.plugins['externals_path']) if vendor.plugins['externals_type'] == 'svn' 
+    end
   end
   
   #expects a valid SVN path that contains an svn:externals property. Parse property and git-svn clone all referenced plugins
@@ -332,11 +343,14 @@ class Plugins
     raise "Error: #{props}" if props[/does not exist/]
     raise "No svn:externals found at #{svn_extern_prop}" unless props.split('\n').length > 0
     #do it
+    vendor.plugins['externals_type'] = 'svn'
+    vendor.plugins['externals_path'] = svn_extern_prop
+    #
     props.each_line do |external|
       match = /(.+)\s+(.+)/.match(external)
       if match
         raise "un-expected svn externals format #{external}" unless match.length == 3
-        plugin = Plugin.clone_svn_external(match[1], match[2], vendor)
+        plugin = SvnPlugin.clone_svn_external(match[1], match[2], vendor)
         plugin.clone
         vendor.add_plugin(plugin)
       else
@@ -389,7 +403,7 @@ class Plugins
   #constructs or updates .plugins file at RAILS root for tracking plugins
   def save
     File.open( @plugins_file, 'w' ) do |out|
-      YAML.dump( @plugins, out )
+      YAML.dump( @plugins.sort, out )
     end
   end
   
@@ -416,10 +430,11 @@ end
 ################# main ##################
 
 case options.op
-  when 'add';     Plugins.add(options.plugin)
-  when 'list';    Plugins.list
-  when 'update';  Plugins.update(options.plugin)
-  when 'push';    Plugins.push(options.plugin)
-  when 'command'; Plugins.command(options.command, options.plugin)
-  when 'svn';     Plugins.clone_svn_externals(options.svn)
+  when 'add';       Plugins.add(options.plugin)
+  when 'list';      Plugins.list
+  when 'update';    Plugins.update(options.plugin)
+  when 'push';      Plugins.push(options.plugin)
+  when 'command';   Plugins.command(options.command, options.plugin)
+  when 'svn';       Plugins.clone_svn_externals(options.svn)
+  when 'svn-update';Plugins.update_svn_externals
 end

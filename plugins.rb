@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 
-#ruby module to manage rails plugins in an git-svn dcommit friendly way
+# ruby module to manage rails plugins in an git-svn dcommit friendly way
 #
 #Copyright 2010 Nazar Aziz - nazar@panthersoftware.com
 
